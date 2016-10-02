@@ -7,9 +7,54 @@ using System.Web.Http;
 using System.Web.Http.Description;
 using Microsoft.Bot.Connector;
 using Newtonsoft.Json;
+using Microsoft.Bot.Builder.Dialogs;
 
 namespace Bot_Application1
 {
+    [Serializable]
+    public class EchoDialog : IDialog<object>
+    {
+        protected int count = 1;
+
+        public async Task StartAsync(IDialogContext context)
+        {
+            context.Wait(MessageReceivedAsync);
+        }
+
+        public async Task MessageReceivedAsync(IDialogContext context,
+            IAwaitable<IMessageActivity> argument)
+        {
+            var message = await argument;
+            if (message.Text == "reset")
+            {
+                PromptDialog.Confirm(context, AfterResetAsync, "reset count?",
+                    "didn't get that!", promptStyle: PromptStyle.None);
+            }
+            else
+            {
+                await context.PostAsync(String.Format("{0}: You said {1}",
+                    this.count++, message.Text));
+                context.Wait(MessageReceivedAsync);
+            }
+        }
+
+        public async Task AfterResetAsync(IDialogContext context, IAwaitable<bool> argument)
+        {
+            var confirm = await argument;
+            if(confirm)
+            {
+                this.count = 1;
+                await context.PostAsync("count has been reset");
+            }
+            else
+            {
+                await context.PostAsync("count has not been reset");
+            }
+            context.Wait(MessageReceivedAsync);
+
+        }
+    }
+
     [BotAuthentication]
     public class MessagesController : ApiController
     {
@@ -19,22 +64,16 @@ namespace Bot_Application1
         /// </summary>
         public async Task<HttpResponseMessage> Post([FromBody]Activity activity)
         {
-            if (activity.Type == ActivityTypes.Message)
+            if (activity != null && activity.GetActivityType() == ActivityTypes.Message)
             {
-                ConnectorClient connector = new ConnectorClient(new Uri(activity.ServiceUrl));
-                // calculate something for us to return
-                int length = (activity.Text ?? string.Empty).Length;
-
-                // return our reply to the user
-                Activity reply = activity.CreateReply($"You sent {activity.Text} which was {length} characters");
-                await connector.Conversations.ReplyToActivityAsync(reply);
+                await Conversation.SendAsync(activity, () => new EchoDialog());
             }
             else
             {
                 HandleSystemMessage(activity);
             }
-            var response = Request.CreateResponse(HttpStatusCode.OK);
-            return response;
+            return new HttpResponseMessage(System.Net.HttpStatusCode.Accepted);
+
         }
 
         private Activity HandleSystemMessage(Activity message)
